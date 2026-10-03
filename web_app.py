@@ -11,37 +11,49 @@ app = Flask(__name__)
 application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("File bhejo ❤️")
+    await update.message.reply_text("Bot is live ❤️\nSend me a file and I will create a link!")
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid=str(update.effective_user.id)
     sid=new_id()
     folder=os.path.join(SITES_DIR,sid)
     os.makedirs(folder,exist_ok=True)
-    f=update.message.document or update.message.photo or update.message.video
-    if update.message.photo: f=update.message.photo[-1]
-    if not f: return
-    tg=await f.get_file()
-    name=getattr(f,'file_name',None) or f"{f.file_id}.bin"
-    if update.message.photo: name=f"{f.file_id}.jpg"
+
+    doc = update.message.document
+    if not doc and update.message.photo:
+        doc = update.message.photo[-1]
+    if not doc:
+        await update.message.reply_text("Send a file")
+        return
+
+    tg=await doc.get_file()
+    name=getattr(doc,'file_name',None) or f"{doc.file_id}.jpg"
+    if update.message.photo: name=f"{doc.file_id}.jpg"
     path=os.path.join(folder,name)
     await tg.download_to_drive(path)
+
     sites=load_json(SITES_FILE)
     sites[sid]={"owner":uid,"views":0}
     save_json(SITES_FILE,sites)
-    await update.message.reply_text(f"✅ Ban gaya!\n{BASE_URL}/site/{sid}")
+    await update.message.reply_text(f"✅ Done!\n{BASE_URL}/site/{sid}")
 
 application.add_handler(CommandHandler("start",start))
 application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_file))
+
+# FIX: Initialize bot once at startup
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+loop.run_until_complete(application.initialize())
+loop.run_until_complete(application.start())
 
 @app.route(f"/webhook/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     data=request.get_json(force=True)
     upd=Update.de_json(data, application.bot)
-    asyncio.run(application.process_update(upd))
+    loop.run_until_complete(application.process_update(upd))
     return "ok"
 
-@app.route("/site/<site_id>/")
+@app.route("/site/<site_id>")
 @app.route("/site/<site_id>/<path:filename>")
 def serve_site(site_id, filename="index.html"):
     folder=os.path.join(SITES_DIR,site_id)
