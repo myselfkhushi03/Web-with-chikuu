@@ -1,43 +1,52 @@
-from flask import Flask, send_from_directory, request
-import os
-from utils import SITES_DIR, SITES_FILE, load_json, save_json
+import os, asyncio
+from flask import Flask, request, send_from_directory, abort
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from utils import *
 
-web = Flask(__name__)
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BASE_URL = os.environ.get("BASE_URL","")
+app = Flask(__name__)
 
-@web.route('/')
-def home():
-    return """<body style="font-family:sans-serif;background:#FFF0F5;text-align:center;padding:50px">
-    <h1>File-to-Web Bot Alive</h1><p>Telegram me file bhej, link banega</p></body>"""
+application = Application.builder().token(BOT_TOKEN).build()
 
-@web.route('/site/<site_id>')
-@web.route('/site/<site_id>/')
-def serve_index(site_id):
-    sites = load_json(SITES_FILE)
-    if site_id not in sites:
-        return "Site not found", 404
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("File bhejo ❤️")
 
-    if sites[site_id].get("password"):
-        pwd = request.args.get("pwd")
-        if pwd!= sites[site_id]["password"]:
-            return """
-            <body style="background:#FFF0F5;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif">
-            <form style="background:white;padding:30px;border-radius:20px;text-align:center">
-            <h2>🔒 Protected</h2>
-            <input name="pwd" type="password" placeholder="Password" style="padding:10px;border-radius:10px;border:1px solid #ddd">
-            <br><button style="margin-top:10px;background:black;color:white;padding:10px 20px;border-radius:20px">Unlock</button>
-            </form></body>
-            """
+async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid=str(update.effective_user.id)
+    sid=new_id()
+    folder=os.path.join(SITES_DIR,sid)
+    os.makedirs(folder,exist_ok=True)
+    f=update.message.document or update.message.photo or update.message.video
+    if update.message.photo: f=update.message.photo[-1]
+    if not f: return
+    tg=await f.get_file()
+    name=getattr(f,'file_name',None) or f"{f.file_id}.bin"
+    if update.message.photo: name=f"{f.file_id}.jpg"
+    path=os.path.join(folder,name)
+    await tg.download_to_drive(path)
+    sites=load_json(SITES_FILE)
+    sites[sid]={"owner":uid,"views":0}
+    save_json(SITES_FILE,sites)
+    await update.message.reply_text(f"✅ Ban gaya!\n{BASE_URL}/site/{sid}")
 
-    sites[site_id]["views"] += 1
-    save_json(SITES_FILE, sites)
-    base = os.path.join(SITES_DIR, site_id)
-    if os.path.exists(os.path.join(base, "index.html")):
-        return send_from_directory(base, "index.html")
-    files = os.listdir(base)
-    if files:
-        return send_from_directory(base, files[0])
-    return "Empty"
+application.add_handler(CommandHandler("start",start))
+application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_file))
 
-@web.route('/site/<site_id>/<path:filename>')
-def serve_file(site_id, filename):
-    return send_from_directory(os.path.join(SITES_DIR, site_id), filename)
+@app.route(f"/webhook/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    data=request.get_json(force=True)
+    upd=Update.de_json(data, application.bot)
+    asyncio.run(application.process_update(upd))
+    return "ok"
+
+@app.route("/site/<site_id>/")
+@app.route("/site/<site_id>/<path:filename>")
+def serve_site(site_id, filename="index.html"):
+    folder=os.path.join(SITES_DIR,site_id)
+    if not os.path.exists(folder): abort(404)
+    return send_from_directory(folder, filename)
+
+@app.route("/")
+def home(): return "Bot Live ❤️"
