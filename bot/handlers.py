@@ -288,9 +288,7 @@ async def viewfile(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(document=buf, filename=fname)
     else:
         await update.message.reply_text(f"```\n{content[:3500]}\n```", parse_mode=ParseMode.MARKDOWN_V2)
-
-
-# ---------------- PREVIEW / DEPLOY ----------------
+        # ---------------- PREVIEW / DEPLOY ----------------
 
 async def preview(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not ctx.args:
@@ -332,4 +330,370 @@ async def deploy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def exportzip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.args
+    if not ctx.args:
+        await update.message.reply_text("Usage: `/exportzip <id>`", parse_mode=ParseMode.MARKDOWN_V2)
+        return
+    pid = ctx.args[0]
+    p = await get_project(pid)
+    if not p or p["owner_id"] != update.effective_user.id:
+        await update.message.reply_text("❌ Not found.")
+        return
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in p["files"]:
+            z.writestr(f["name"], f["content"])
+    buf.seek(0)
+    buf.name = f"{pid}.zip"
+    await update.message.reply_document(document=buf, filename=f"{pid}.zip")
+
+
+# ---------------- MISC ----------------
+
+async def templates_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🎨 *Templates* \\- ek choose karo:",
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=templates_kb()
+    )
+
+
+async def storage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = await get_user(update.effective_user.id)
+    if not u:
+        await update.message.reply_text("Pehle /start karo.")
+        return
+    used = u.get("storage_used", 0)
+    mb = used / (1024 * 1024)
+    await update.message.reply_text(
+        f"💾 *Storage*\n\nUsed: {mb:.2f} MB\nProjects: {len(u.get('projects', []))}",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+
+async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    s = await get_stats()
+    await update.message.reply_text(
+        f"📊 *Bot Status*\n\n👥 Users: {s['users']}\n📁 Projects: {s['projects']}\n✅ Online",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+
+async def admin_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    s = await get_stats()
+    await update.message.reply_text(f"🔐 Admin\nUsers: {s['users']}\nProjects: {s['projects']}")
+
+
+# ---------------- MESSAGE HANDLER ----------------
+
+async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    state = USER_STATE.get(u.id)
+    if not state:
+        return
+
+    action = state.get("action")
+
+    # Rename project
+    if action == "renameproject" and update.message.text:
+        new_name = update.message.text.strip()
+        p = await get_project(state["pid"])
+        if p and p["owner_id"] == u.id:
+            await update_project(state["pid"], {"name": new_name})
+        USER_STATE.pop(u.id, None)
+        await update.message.reply_text(
+            f"✅ Renamed to `{esc(new_name)}`",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    # Rename file
+    if action == "renamefile" and update.message.text:
+        new_name = update.message.text.strip()
+        p = await get_project(state["pid"])
+        if p and p["owner_id"] == u.id:
+            files = fm_rename_file(p, state["fname"], new_name)
+            await update_project(state["pid"], {"files": files})
+        USER_STATE.pop(u.id, None)
+        await update.message.reply_text(
+            f"✅ Renamed to `{esc(new_name)}`",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    # Ask for filename (add file)
+    if action == "askfilename" and update.message.text:
+        fname = update.message.text.strip()
+        USER_STATE[u.id] = {"action": "addfile", "pid": state["pid"], "fname": fname}
+        await update.message.reply_text(
+            f"✏️ Ab content bhejo `{esc(fname)}` ke liye:",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    # Add / Edit file content
+    if action in ("addfile", "editfile"):
+        pid = state["pid"]
+        fname = state["fname"]
+
+        content = None
+        if update.message.document:
+            file = await update.message.document.get_file()
+            data = await file.download_as_bytearray()
+            content = data.decode("utf-8", errors="ignore")
+        elif update.message.text:
+            content = update.message.text
+
+        if not content:
+            return
+
+        p = await get_project(pid)
+        if not p or p["owner_id"] != u.id:
+            await update.message.reply_text("❌ Project not found.")
+            USER_STATE.pop(u.id, None)
+            return
+
+        files = add_or_update_file(p, fname, content)
+        await update_project(pid, {"files": files})
+        USER_STATE.pop(u.id, None)
+        await update.message.reply_text(
+            f"✅ `{esc(fname)}` saved\\! \\({len(content)} bytes\\)",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=project_menu(pid)
+        )
+        return
+
+
+# ---------------- CALLBACK HANDLER ----------------
+
+async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    data = q.data
+    u = q.from_user
+
+    # --- Static menus ---
+    if data == "menu_back":
+        await q.edit_message_text("🏠 Main Menu", reply_markup=main_menu())
+        return
+
+    if data == "menu_new":
+        await q.edit_message_text(
+            "🚀 Use: `/newproject <name> <type>`\nTypes: portfolio, blog, landing, ecommerce, admin, custom",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    if data == "menu_list":
+        projects = await get_user_projects(u.id)
+        if not projects:
+            await q.edit_message_text("📭 No projects yet.")
+            return
+        await q.edit_message_text(
+            f"📁 *Your Projects* \\({len(projects)}\\)",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=projects_list(projects)
+        )
+        return
+
+    if data == "menu_templates":
+        await q.edit_message_text("🎨 Templates:", reply_markup=templates_kb())
+        return
+
+    if data == "menu_storage":
+        user = await get_user(u.id)
+        used = user.get("storage_used", 0) / (1024 * 1024)
+        await q.edit_message_text(
+            f"💾 Used: {used:.2f} MB\n📁 Projects: {len(user.get('projects', []))}"
+        )
+        return
+
+    if data == "menu_help":
+        await q.edit_message_text("📖 Type /help for full command list.")
+        return
+
+    # --- Project open ---
+    if data.startswith("open_"):
+        pid = data.split("_", 1)[1]
+        p = await get_project(pid)
+        if not p or p["owner_id"] != u.id:
+            await q.edit_message_text("❌ Not found.")
+            return
+        await q.edit_message_text(
+            f"📁 *{esc(p['name'])}*\n🆔 `{esc(pid)}`\n📄 {len(p['files'])} files",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=project_menu(pid)
+        )
+        return
+
+    # --- Delete project ---
+    if data.startswith("delp_"):
+        pid = data.split("_", 1)[1]
+        await q.edit_message_text(
+            f"⚠️ Confirm delete `{esc(pid)}`?",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=confirm_delete(pid)
+        )
+        return
+
+    if data.startswith("confdel_"):
+        pid = data.split("_", 1)[1]
+        p = await get_project(pid)
+        if p and p["owner_id"] == u.id:
+            await delete_project(pid)
+        await q.edit_message_text("🗑 Deleted.")
+        return
+
+    # --- Files list ---
+    if data.startswith("files_"):
+        pid = data.split("_", 1)[1]
+        p = await get_project(pid)
+        if not p:
+            return
+        await q.edit_message_text(
+            f"📄 Files in *{esc(p['name'])}*",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=files_list(pid, p["files"])
+        )
+        return
+
+    # --- Single file actions ---
+    if data.startswith("file_"):
+        _, pid, fname = data.split("_", 2)
+        await q.edit_message_text(
+            f"📄 `{esc(fname)}`\n\nChoose action:",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=file_actions(pid, fname)
+        )
+        return
+
+    if data.startswith("view_"):
+        _, pid, fname = data.split("_", 2)
+        p = await get_project(pid)
+        f = find_file(p, fname) if p else None
+        if not f:
+            await q.edit_message_text("❌ Not found.")
+            return
+        content = f["content"]
+        txt = f"```\n{content[:3000]}\n```" if len(content) <= 3000 else "File too big, use /viewfile"
+        try:
+            await q.edit_message_text(
+                txt,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                reply_markup=file_actions(pid, fname)
+            )
+        except Exception:
+            await q.edit_message_text("⚠️ Content contains special chars. Use /viewfile.")
+        return
+
+    if data.startswith("dl_"):
+        _, pid, fname = data.split("_", 2)
+        p = await get_project(pid)
+        f = find_file(p, fname) if p else None
+        if not f:
+            return
+        buf = io.BytesIO(f["content"].encode())
+        buf.name = fname
+        await q.message.reply_document(document=buf, filename=fname)
+        return
+
+    if data.startswith("delf_"):
+        _, pid, fname = data.split("_", 2)
+        p = await get_project(pid)
+        if not p or p["owner_id"] != u.id:
+            return
+        files = fm_delete_file(p, fname)
+        await update_project(pid, {"files": files})
+        await q.edit_message_text(
+            f"🗑 `{esc(fname)}` deleted.",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=files_list(pid, files)
+        )
+        return
+
+    if data.startswith("ren_"):
+        _, pid, fname = data.split("_", 2)
+        USER_STATE[u.id] = {"action": "renamefile", "pid": pid, "fname": fname}
+        await q.edit_message_text(
+            f"📝 Naya naam bhejo `{esc(fname)}` ke liye:",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    if data.startswith("edit_"):
+        _, pid, fname = data.split("_", 2)
+        USER_STATE[u.id] = {"action": "editfile", "pid": pid, "fname": fname}
+        await q.edit_message_text(
+            f"✏️ Naya content bhejo `{esc(fname)}` ke liye:",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    if data.startswith("addf_"):
+        pid = data.split("_", 1)[1]
+        USER_STATE[u.id] = {"action": "askfilename", "pid": pid}
+        await q.edit_message_text(
+            "➕ Naya file ka naam bhejo \\(e\\.g\\. about\\.html\\):",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    # --- Preview / Deploy ---
+    if data.startswith("prev_"):
+        pid = data.split("_", 1)[1]
+        url = f"{WEBHOOK_URL}/preview/{pid}"
+        await q.edit_message_text(
+            f"👁 Preview: {url}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Open", url=url)],
+                [InlineKeyboardButton("⬅️ Back", callback_data=f"open_{pid}")]
+            ])
+        )
+        return
+
+    if data.startswith("deploy_"):
+        pid = data.split("_", 1)[1]
+        url = f"{WEBHOOK_URL}/s/{pid}"
+        await update_project(pid, {"deploy_url": url, "is_public": True})
+        await q.edit_message_text(
+            f"🚀 Deployed\\!\n🌐 {url}",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Visit", url=url)],
+                [InlineKeyboardButton("⬅️ Back", callback_data=f"open_{pid}")]
+            ])
+        )
+        return
+
+    # --- ZIP download ---
+    if data.startswith("zip_"):
+        pid = data.split("_", 1)[1]
+        p = await get_project(pid)
+        if not p or p["owner_id"] != u.id:
+            return
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in p["files"]:
+                z.writestr(f["name"], f["content"])
+        buf.seek(0)
+        buf.name = f"{pid}.zip"
+        await q.message.reply_document(document=buf, filename=f"{pid}.zip")
+        return
+
+    # --- Rename project ---
+    if data.startswith("renp_"):
+        pid = data.split("_", 1)[1]
+        USER_STATE[u.id] = {"action": "renameproject", "pid": pid}
+        await q.edit_message_text("✏️ Naya project naam bhejo:", parse_mode=ParseMode.MARKDOWN_V2)
+        return
+
+    # --- Template choose ---
+    if data.startswith("tpl_"):
+        tpl = data.split("_", 1)[1]
+        await q.edit_message_text(
+            f"🎨 Template *{esc(tpl)}* use karne ke liye:\n"
+            f"`/newproject <name> {tpl}`",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
