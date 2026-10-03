@@ -1,142 +1,77 @@
-import os, time, zipfile, shutil, qrcode
-from io import BytesIO
-from threading import Thread
-from telegram import BotCommand
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+import os, asyncio, threading
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from web_app import web
 from utils import *
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-RENDER_URL = os.getenv("RENDER_EXTERNAL_HOSTNAME", "localhost:10000")
-PENDING_CUSTOM = {}
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BASE_URL = os.environ.get("BASE_URL", "https://web-with-chikuu.onrender.com")
 
-Thread(target=lambda: web.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("File bhejo, main link bana dunga ❤️\n\nCommands:\n/create <name> - custom name\n/mysites - tumhari sites\n/delete <id>\n/setpassword <id> <pass>")
 
-async def setup(app):
-    await app.bot.set_my_commands([
-        BotCommand("start","🚀 Start"),
-        BotCommand("create","✨ Custom link"),
-        BotCommand("mysites","📁 My Sites"),
-        BotCommand("delete","🗑️ Delete"),
-        BotCommand("setpassword","🔒 Password"),
-        BotCommand("qr","📱 QR Code"),
-        BotCommand("stats","📊 Stats"),
-    ])
+async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    site_id = context.user_data.get("custom_name") or new_id()
+    context.user_data.pop("custom_name", None)
 
-async def start(update, context):
-    await update.message.reply_text(
-        "💖 **File-to-Web Bot - Full Power**\n━━━━━━━━━━━━\n"
-        "📤 File bhej = Website link\n\n"
-        "✨ /create mylove -> custom naam\n"
-        "📁 /mysites -> teri sites\n"
-        "🔒 /setpassword id 1234\n"
-        "📱 /qr id -> QR code\n"
-        "🗑️ /delete id\n\n"
-        "ZIP, HTML, Photo, Video sab support hai!"
-    )
+    folder = os.path.join(SITES_DIR, site_id)
+    os.makedirs(folder, exist_ok=True)
 
-async def create_cmd(update, context):
-    if not context.args:
-        await update.message.reply_text("Use: /create mylovepage"); return
-    PENDING_CUSTOM[update.effective_user.id] = context.args[0]
-    await update.message.reply_text(f"✅ Agli file ka link: `{context.args[0]}`\nAb file bhej!", parse_mode="Markdown")
-
-async def handle_files(update, context):
-    user_id = update.effective_user.id
-    custom = PENDING_CUSTOM.pop(user_id, None)
-    site_id, path = create_site(user_id, custom)
-    if not site_id:
-        await update.message.reply_text(path); return
-
-    status = await update.message.reply_text("⏳ Bana raha hu website...")
-
+    file = update.message.document or update.message.photo or update.message.video
     if update.message.photo:
-        f = await update.message.photo[-1].get_file()
-        fname = f"photo_{int(time.time())}.jpg"
-    elif update.message.document:
-        f = await update.message.document.get_file()
-        fname = update.message.document.file_name
-    elif update.message.video:
-        f = await update.message.video.get_file()
-        fname = f"video_{int(time.time())}.mp4"
-    else:
-        await status.edit_text("❌ File type support nahi"); return
+        file = update.message.photo[-1]
 
-    fpath = os.path.join(SITES_DIR, site_id, fname)
-    await f.download_to_drive(fpath)
+    tg_file = await file.get_file()
+    file_path = os.path.join(folder, file.file_name if hasattr(file, 'file_name') and file.file_name else f"file{os.path.splitext(tg_file.file_path)[1]}")
+    await tg_file.download_to_drive(file_path)
 
-    if fname.endswith(".zip"):
-        with zipfile.ZipFile(fpath, 'r') as z:
-            z.extractall(os.path.join(SITES_DIR, site_id))
-        os.remove(fpath)
+    # zip extract
+    if file_path.endswith(".zip"):
+        import zipfile
+        with zipfile.ZipFile(file_path, 'r') as z:
+            z.extractall(folder)
+        os.remove(file_path)
 
-    add_file_to_site(site_id, fname)
-    all_files = [x for x in os.listdir(os.path.join(SITES_DIR, site_id)) if x!= "index.html"]
-    if not any(x.endswith(".html") for x in all_files):
-        make_gallery_html(site_id, all_files)
-
-    link = f"https://{RENDER_URL}/site/{site_id}"
-    qr = qrcode.make(link)
-    qr_path = os.path.join(SITES_DIR, site_id, "_qr.png")
-    qr.save(qr_path)
-
-    await status.delete()
-    await update.message.reply_photo(
-        photo=open(qr_path, "rb"),
-        caption=f"🎉 **Website Ready!**\n📁 ID: `{site_id}`\n🔗 {link}\n\n🔒 `/setpassword {site_id} 1234`",
-        parse_mode="Markdown"
-    )
-
-async def my_sites(update, context):
-    sites = get_user_sites(update.effective_user.id)
-    if not sites: await update.message.reply_text("📭 Koi site nahi"); return
-    txt = "📁 **Your Sites:**\n"
-    for sid,d in sites.items():
-        txt += f"• `{sid}` - {d['views']} views - https://{RENDER_URL}/site/{sid}\n"
-    await update.message.reply_text(txt, parse_mode="Markdown")
-
-async def delete_site(update, context):
-    if not context.args: return
-    sid = context.args[0]
     sites = load_json(SITES_FILE)
-    if sid not in sites or sites[sid]["owner"]!= update.effective_user.id:
-        await update.message.reply_text("❌ Not yours"); return
-    shutil.rmtree(os.path.join(SITES_DIR, sid), ignore_errors=True)
-    sites.pop(sid); save_json(SITES_FILE, sites)
-    await update.message.reply_text(f"🗑️ {sid} deleted")
+    sites[site_id] = {"owner": user_id, "views": 0, "password": None}
+    save_json(SITES_FILE, sites)
 
-async def set_pwd(update, context):
-    if len(context.args)<2: await update.message.reply_text("Use: /setpassword id pwd"); return
-    sid,pwd = context.args[0], context.args[1]
+    link = f"{BASE_URL}/site/{site_id}"
+    await update.message.reply_text(f"✅ Ban gaya!\n\n🔗 Link: {link}\n\n/qr {site_id} - QR banao\n/setpassword {site_id} 1234 - Lock lagao")
+
+async def create_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Use: /create mylove")
+        return
+    context.user_data["custom_name"] = context.args[0]
+    await update.message.reply_text(f"Ok ab file bhejo, naam hoga: {context.args[0]}")
+
+async def mysites(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sites = load_json(SITES_FILE)
-    if sid not in sites or sites[sid]["owner"]!= update.effective_user.id:
-        await update.message.reply_text("❌ Not yours"); return
-    sites[sid]["password"]=pwd; save_json(SITES_FILE, sites)
-    await update.message.reply_text(f"🔒 Password set: https://{RENDER_URL}/site/{sid}?pwd={pwd}")
+    user_id = str(update.effective_user.id)
+    my = [k for k,v in sites.items() if v['owner']==user_id]
+    if not my:
+        await update.message.reply_text("Tumhari koi site nahi hai")
+        return
+    txt = "\n".join([f"{BASE_URL}/site/{s} - Views: {sites[s]['views']}" for s in my])
+    await update.message.reply_text(txt)
 
-async def qr_cmd(update, context):
-    if not context.args: return
-    sid = context.args[0]
-    link = f"https://{RENDER_URL}/site/{sid}"
-    qr = qrcode.make(link)
-    bio = BytesIO(); qr.save(bio,"PNG"); bio.seek(0)
-    await update.message.reply_photo(bio, caption=f"📱 QR for {sid}\n{link}")
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    web.run(host="0.0.0.0", port=port)
 
-async def stats_cmd(update, context):
-    sites = load_json(SITES_FILE)
-    await update.message.reply_text(f"📊 Total: {len(sites)}\nYour: {len(get_user_sites(update.effective_user.id))}")
-
-def main():
-    app = Application.builder().token(BOT_TOKEN).post_init(setup).build()
+async def main_bot():
+    app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("create", create_cmd))
-    app.add_handler(CommandHandler("mysites", my_sites))
-    app.add_handler(CommandHandler("delete", delete_site))
-    app.add_handler(CommandHandler("setpassword", set_pwd))
-    app.add_handler(CommandHandler("qr", qr_cmd))
-    app.add_handler(CommandHandler("stats", stats_cmd))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL | filters.VIDEO, handle_files))
-    print("Bot Started")
-    app.run_polling()
+    app.add_handler(CommandHandler("mysites", mysites))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_file))
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await app.updater.idle()
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    threading.Thread(target=run_flask, daemon=True).start()
+    asyncio.run(main_bot())
