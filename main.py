@@ -16,33 +16,25 @@ from bot import config
 from bot import handlers
 from web.app import web
 
-
-# ---------------- LOGGING ----------------
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     level=logging.INFO,
 )
 log = logging.getLogger("webbuilder-bot")
 
-
-# ---------------- GLOBAL APP ----------------
 ptb_app: Application = None
 
-
-# ---------------- LIFESPAN ----------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global ptb_app
 
-    # Build PTB application (webhook mode)
     ptb_app = (
         Application.builder()
         .token(config.BOT_TOKEN)
-        .updater(None)  # disable polling, webhook use karenge
+        .updater(None)
         .build()
     )
 
-    # Register command handlers
     ptb_app.add_handler(CommandHandler("start", handlers.start))
     ptb_app.add_handler(CommandHandler("help", handlers.help_cmd))
     ptb_app.add_handler(CommandHandler("newproject", handlers.newproject))
@@ -65,17 +57,14 @@ async def lifespan(app: FastAPI):
     ptb_app.add_handler(CommandHandler("status", handlers.status))
     ptb_app.add_handler(CommandHandler("admin", handlers.admin_stats))
 
-    # Callback + Message handlers (last me)
     ptb_app.add_handler(CallbackQueryHandler(handlers.callback_handler))
     ptb_app.add_handler(
         MessageHandler(filters.ALL & ~filters.COMMAND, handlers.handle_message)
     )
 
-    # Init + start bot
     await ptb_app.initialize()
     await ptb_app.start()
 
-    # Set webhook if URL present
     if config.WEBHOOK_URL:
         webhook_url = f"{config.WEBHOOK_URL}/webhook/{config.WEBHOOK_SECRET}"
         await ptb_app.bot.set_webhook(
@@ -88,10 +77,8 @@ async def lifespan(app: FastAPI):
         log.warning("⚠️ WEBHOOK_URL not set — bot won't receive updates")
 
     log.info("🚀 Bot started successfully")
+    yield
 
-    yield  # app running
-
-    # Shutdown
     log.info("🛑 Shutting down bot...")
     try:
         if config.WEBHOOK_URL:
@@ -101,52 +88,37 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.error(f"Shutdown error: {e}")
 
-
-# ---------------- FASTAPI APP ----------------
 app = FastAPI(
     title="WebBuilder Bot",
-    description="Telegram bot that builds websites",
     version="1.0.0",
     lifespan=lifespan,
 )
 
-
-# ---------------- WEBHOOK ENDPOINT ----------------
 @app.post("/webhook/{secret}")
 async def telegram_webhook(secret: str, request: Request):
-    """Telegram sends updates here."""
     if secret != config.WEBHOOK_SECRET:
         log.warning(f"❌ Invalid webhook secret: {secret}")
         return Response(status_code=403)
-
     if ptb_app is None:
         return Response(status_code=503)
-
     try:
         data = await request.json()
         update = Update.de_json(data, ptb_app.bot)
         await ptb_app.process_update(update)
     except Exception as e:
         log.exception(f"Webhook processing error: {e}")
-
     return {"ok": True}
-
 
 @app.get("/health")
 async def health():
-    """Health check for Render / UptimeRobot."""
     return {
         "status": "ok",
         "bot": "running" if ptb_app else "stopped",
     }
 
-
-# ---------------- MOUNT WEB ROUTES ----------------
-# web/app.py ke routes (/, /preview/{pid}, /s/{pid})
+# Web routes - health clash fix ke liye web/app.py se /health hata diya hai
 app.mount("/", web)
 
-
-# ---------------- LOCAL RUN ----------------
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
@@ -154,4 +126,4 @@ if __name__ == "__main__":
         port=config.PORT,
         reload=False,
         log_level="info",
-    )
+)
