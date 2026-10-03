@@ -1,68 +1,38 @@
 import os
-import json
 import random
 import string
-import time
-from datetime import datetime
+import zipfile
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SITES_DIR = os.path.join(BASE_DIR, "sites")
-SITES_FILE = os.path.join(BASE_DIR, "sites.json")
+SITES_DIR = os.path.join(os.getcwd(), "user_sites")
 
-os.makedirs(SITES_DIR, exist_ok=True)
+if not os.path.exists(SITES_DIR):
+    os.makedirs(SITES_DIR)
 
-def load_json(path):
-    if not os.path.exists(path):
-        return {}
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except:
-        return {}
+def generate_site_code():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
-def save_json(path, data):
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        return True
-    except Exception as e:
-        print(f"Save error: {e}")
-        return False
+def extract_zip(file_path, extract_to):
+    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_to)
 
-def new_id(length=7):
-    first = random.choice(string.ascii_lowercase)
-    rest = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(length-1))
-    final_id = first + rest
-    sites = load_json(SITES_FILE)
-    if final_id in sites:
-        return new_id(length)
-    return final_id
-
-def get_file_size_mb(path):
-    if not os.path.exists(path):
-        return 0
-    return os.path.getsize(path) / (1024 * 1024)
-
-def create_site_entry(owner_id, file_name, folder_path):
-    is_zip = False
-    if file_name.lower().endswith("zip"):
-        is_zip = True
-    
-    size_str = "N/A"
-    if os.path.isfile(folder_path):
-        size_str = f"{get_file_size_mb(folder_path):.2f} MB"
-    
-    return {
-        "owner": str(owner_id),
-        "file": file_name,
-        "views": 0,
-        "created_at": datetime.now().strftime("%d-%m-%Y %I:%M %p"),
-        "timestamp": int(time.time()),
-        "size": size_str,
-        "is_zip": is_zip
-    }
-
-def ensure_files():
-    if not os.path.exists(SITES_FILE):
-        save_json(SITES_FILE, {})
+def inject_audio_script(site_path, audio_filename):
+    index_path = os.path.join(site_path, "index.html")
+    if os.path.exists(index_path):
+        audio_script = f"""
+        <audio id="bgMusic" autoplay loop hidden>
+            <source src="{audio_filename}" type="audio/mpeg">
+        </audio>
+        <script>
+            document.addEventListener('click', function() {{
+                var audio = document.getElementById('bgMusic');
+                if(audio) audio.play();
+            }}, {{ once: true }});
+        </script>
+        </body>
+        """
+        with open(index_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        if "bgMusic" not in content:
+            content = content.replace("</body>", audio_script)
+            with open(index_path, 'w', encoding='utf-8') as f:
+                f.write(content)
