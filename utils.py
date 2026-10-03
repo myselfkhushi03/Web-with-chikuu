@@ -1,57 +1,65 @@
-import os, json, time, random, string
+import os
+import json
+import random
+import string
+import time
+from datetime import datetime
 
-DATA_DIR = "/data" if os.path.exists("/data") else "."
-SITES_DIR = os.path.join(DATA_DIR, "sites")
+# ================= CONFIG =================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SITES_DIR = os.path.join(BASE_DIR, "sites")
+SITES_FILE = os.path.join(BASE_DIR, "sites.json")
+MAX_FILE_SIZE_MB = 50  # safety limit
+
 os.makedirs(SITES_DIR, exist_ok=True)
-SITES_FILE = os.path.join(DATA_DIR, "sites.json")
 
-def load_json(f):
-    try: return json.load(open(f,"r"))
-    except: return {}
+# ================= CORE UTILS =================
+def load_json(path):
+    """Safely load json"""
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except:
+        return {}
 
-def save_json(f,d):
-    json.dump(d, open(f,"w"), indent=2)
+def save_json(path, data):
+    """Safely save json"""
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"[SAVE_ERROR] {e}")
+        return False
 
-def gen_id(n=8):
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
-
-def create_site(owner_id, custom=None):
-    site_id = custom.lower().replace(" ","-") if custom else gen_id()
-    path = os.path.join(SITES_DIR, site_id)
-    if os.path.exists(path):
-        return None, "❌ Ye naam already hai, dusra naam try kar /create se"
-    os.makedirs(path, exist_ok=True)
+def new_id(length=8):
+    """Generate aesthetic + strong unique ID"""
+    # first char always letter to look cool
+    first = random.choice(string.ascii_lowercase)
+    rest = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(length-1))
+    final_id = first + rest
+    
+    # ensure not duplicate
     sites = load_json(SITES_FILE)
-    sites[site_id] = {"owner":owner_id,"created":time.time(),"views":0,"files":[],"password":None}
-    save_json(SITES_FILE, sites)
-    return site_id, path
+    if final_id in sites:
+        return new_id(length)
+    return final_id
 
-def add_file_to_site(site_id, filename):
-    sites = load_json(SITES_FILE)
-    if site_id in sites and filename not in sites[site_id]["files"]:
-        sites[site_id]["files"].append(filename)
-        save_json(SITES_FILE, sites)
+def get_file_size_mb(path):
+    if not os.path.exists(path):
+        return 0
+    return os.path.getsize(path) / (1024*1024)
 
-def get_user_sites(user_id):
-    sites = load_json(SITES_FILE)
-    return {k:v for k,v in sites.items() if v["owner"]==user_id}
-
-def make_gallery_html(site_id, files):
-    items = ""
-    for f in files:
-        if f == "index.html" or f.startswith("_"): continue
-        ext = f.split('.')[-1].lower()
-        if ext in ['jpg','jpeg','png','webp','gif']:
-            items += f'<div class="rounded-[18px] overflow-hidden shadow"><img src="/site/{site_id}/{f}" class="w-full h-64 object-cover"><p class="p-2 text-xs bg-white">{f}</p></div>'
-        elif ext in ['mp4','mov']:
-            items += f'<div class="rounded-[18px] overflow-hidden bg-black"><video src="/site/{site_id}/{f}" controls class="w-full h-64"></video></div>'
-        else:
-            items += f'<a href="/site/{site_id}/{f}" class="p-4 rounded-2xl bg-white border block">📄 {f}</a>'
-    html = f"""<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-    <script src="https://cdn.tailwindcss.com"></script></head>
-    <body class="bg-[#FFF0F5] p-6"><div class="max-w-6xl mx-auto">
-    <h1 class="text-3xl font-bold">💖 {site_id}</h1>
-    <p class="text-zinc-500">{len(files)} files • File-to-Web Bot</p>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">{items}</div></div></body></html>"""
-    with open(os.path.join(SITES_DIR, site_id, "index.html"), "w", encoding="utf-8") as fw:
-        fw.write(html)
+def create_site_entry(owner_id, file_name, folder_path):
+    """Create pro metadata entry"""
+    return {
+        "owner": str(owner_id),
+        "file": file_name,
+        "views": 0,
+        "created_at": datetime.now().strftime("%d-%m-%Y %I:%M %p"),
+        "timestamp": int(time.time()),
+        "size": f"{get_file_size_mb(folder_path):.2f} MB" if os.path.isfile(folder_path) else "N/A",
+        "is_zip": file_name.lower().endswith(".
