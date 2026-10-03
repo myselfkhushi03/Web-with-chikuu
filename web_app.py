@@ -20,7 +20,7 @@ def main_menu():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
-        "✨ **Welcome to ChikuuWeb Bot** ✨\n\n"
+        "✨ **Welcome to Chikuu's Web Bot** ✨\n\n"
         "👋 Hey! I'm your personal website maker bot.\n\n"
         "🚀 **What I can do:**\n"
         "• 📄 Upload any HTML / TXT / ZIP\n"
@@ -28,7 +28,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 🔗 Get instant public link\n"
         "• 📊 Track views & manage sites\n\n"
         "📤 **Just send me a file as Document and I’ll make it live!**\n\n"
-        "_Made with ❤️ by Chikuu_"
+        "___Made with 💖 by Chikuu___"
     )
     await update.message.reply_text(msg, reply_markup=main_menu(), parse_mode="Markdown")
 
