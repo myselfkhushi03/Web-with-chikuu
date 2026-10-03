@@ -6,12 +6,8 @@ from bot.filemanager import build_inline_bundle
 
 web = FastAPI(
     title="WebBuilder Preview",
-    description="Live preview + deployed sites",
     version="1.0.0",
 )
-
-
-# ---------------- LANDING PAGE ----------------
 
 @web.get("/", response_class=HTMLResponse)
 async def root():
@@ -23,9 +19,9 @@ async def root():
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WebBuilder Bot 🚀</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin:0; padding:0; box-sizing:border-box; }
   body {
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family: system-ui, sans-serif;
     background: radial-gradient(circle at top, #1a1a2e, #0f0f0f);
     min-height: 100vh;
     display: grid;
@@ -70,52 +66,31 @@ async def root():
     <div class="emoji">🚀</div>
     <h1 class="gradient">WebBuilder Bot</h1>
     <p>Build, edit, and deploy websites directly from Telegram.</p>
-    <a href="https://t.me/BotFather" target="_blank">Open Telegram</a>
+    <a href="https://t.me/your_bot_username" target="_blank">Open in Telegram</a>
   </div>
 </body>
 </html>
-    """
-
-
-# ---------------- HEALTH CHECK ----------------
-
-@web.get("/health")
-async def health():
-    return {"status": "ok", "service": "webbuilder-preview"}
-
-
-# ---------------- LIVE PREVIEW ----------------
+"""
 
 @web.get("/preview/{pid}", response_class=HTMLResponse)
 async def preview(pid: str):
-    """Live preview of a project."""
     p = await get_project(pid)
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-
     await increment_views(pid)
     html = build_inline_bundle(p)
     return HTMLResponse(content=html)
-
-
-# ---------------- DEPLOYED SITE ----------------
 
 @web.get("/s/{pid}", response_class=HTMLResponse)
 async def serve(pid: str):
-    """Public deployed site."""
     p = await get_project(pid)
     if not p:
         raise HTTPException(status_code=404, detail="Site not found")
-
     if not p.get("is_public", True):
         raise HTTPException(status_code=403, detail="This site is private")
-
     await increment_views(pid)
     html = build_inline_bundle(p)
     return HTMLResponse(content=html)
-
-
-# ---------------- 404 HANDLER ----------------
 
 @web.exception_handler(404)
 async def not_found(request, exc):
@@ -123,12 +98,8 @@ async def not_found(request, exc):
         content="""
         <html><body style="font-family:sans-serif;background:#0f0f0f;color:#fff;
         display:grid;place-items:center;height:100vh;margin:0;text-align:center">
-        <div>
-          <h1>404 🔍</h1>
-          <p>Page not found</p>
-          <a href="/" style="color:#667eea">Go Home</a>
-        </div>
+        <div><h1>404 🔍</h1><p>Page not found</p><a href="/" style="color:#667eea">Go Home</a></div>
         </body></html>
         """,
         status_code=404,
-    )
+)
