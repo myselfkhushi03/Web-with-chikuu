@@ -66,6 +66,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/renameproject <id> <new>` \\- Rename site\n"
         "• `/cloneproject <id>` \\- Duplicate project\n"
         "• `/deleteproject <id>` \\- Delete site\n\n"
+        "🎨 *Templates:*\n"
+        "• `/templates` \\- View available templates\n\n"
         "📄 *File Management:*\n"
         "• `/addfile <id> <filename>` \\- Add via message/upload\n"
         "• `/editfile <id> <filename>` \\- Edit code\n"
@@ -78,6 +80,18 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/exportzip <id>` \\- Download ZIP archive"
     )
     await update.message.reply_text(msg, parse_mode="MarkdownV2")
+
+async def templates_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    template_text = (
+        "✨ *Available Templates:*\n\n"
+        "1\\. `portfolio` \\- Interactive Question Flow \\+ Autoplay Music \\(Tu Barsaat\\) 💖\n"
+        "2\\. `blog` \\- Clean Blog Layout 📝\n"
+        "3\\. `landing` \\- Product Landing Page 🚀\n"
+        "4\\. `ecommerce` \\- Shop Layout 🛒\n"
+        "5\\. `admin` \\- Admin Dashboard 📊\n\n"
+        "👉 *Usage:* `/newproject MySite portfolio`"
+    )
+    await update.message.reply_text(template_text, parse_mode="MarkdownV2", reply_markup=templates_kb())
 
 async def newproject_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
@@ -115,7 +129,7 @@ async def openproject_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not project or project["user_id"] != update.effective_user.id:
         await update.message.reply_text("❌ Project not found or access denied\\.", parse_mode="MarkdownV2")
         return
-    
+
     msg = f"🌐 *Project:* {esc(project['name'])}\n🆔 *ID:* `{esc(p_id)}`\n🎨 *Type:* {esc(project['type'])}"
     await update.message.reply_text(msg, parse_mode="MarkdownV2", reply_markup=project_menu_kb(p_id))
 
@@ -268,7 +282,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("📁 *Your Web Projects:*", parse_mode="MarkdownV2", reply_markup=projects_list_kb(projects))
     elif data == "menu_templates":
-        await query.edit_message_text("🎨 *Ready Web Templates:*", parse_mode="MarkdownV2", reply_markup=templates_kb())
+        template_text = (
+            "🎨 *Ready Web Templates:*\n\n"
+            "1\\. `portfolio` \\- Interactive Question Flow \\+ Autoplay Music \\(Tu Barsaat\\) 💖\n"
+            "2\\. `blog` \\- Clean Blog Layout 📝\n"
+            "3\\. `landing` \\- Product Landing Page 🚀\n"
+            "4\\. `ecommerce` \\- Shop Layout 🛒\n"
+            "5\\. `admin` \\- Admin Dashboard 📊"
+        )
+        await query.edit_message_text(template_text, parse_mode="MarkdownV2", reply_markup=templates_kb())
     elif data.startswith("open_"):
         p_id = data.replace("open_", "")
         project = await get_project(p_id)
@@ -292,6 +314,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("templates", templates_cmd))
     app.add_handler(CommandHandler("newproject", newproject_cmd))
     app.add_handler(CommandHandler("myprojects", myprojects_cmd))
     app.add_handler(CommandHandler("openproject", openproject_cmd))
