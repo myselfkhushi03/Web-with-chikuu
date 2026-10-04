@@ -3,10 +3,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip('/')
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "chikuu_default_secret_999")
-MONGO_URI = os.getenv("MONGO_URI", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip('/').strip()
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "chikuu_default_secret_999").strip()
+
+# Clean MONGO_URI from unwanted quotes or trailing spaces
+MONGO_URI = os.getenv("MONGO_URI", "").strip().strip('"').strip("'")
+
 PORT = int(os.getenv("PORT", 10000))
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 
