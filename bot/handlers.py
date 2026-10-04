@@ -289,8 +289,7 @@ async def editfile(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"Current size: {human_size(f['size'])}\n\n"
         f"Send new content now:",
         parse_mode=ParseMode.MARKDOWN_V2
-)
-    async def deletefile_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        )async def deletefile_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if len(ctx.args) < 2:
         await update.message.reply_text("Usage: `/deletefile <id> <filename>`", parse_mode=ParseMode.MARKDOWN_V2)
         return
