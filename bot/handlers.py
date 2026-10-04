@@ -275,10 +275,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu_back":
         await query.edit_message_text("✨ *Main Menu*", parse_mode="MarkdownV2", reply_markup=main_menu_kb())
+    elif data == "menu_new":
+        await query.edit_message_text("➕ *Create New Project*\n\nSend command: `/newproject <name> <type>`\n\n*Types:* `portfolio`, `blog`, `landing`, `ecommerce`, `admin`, `custom`", parse_mode="MarkdownV2", reply_markup=main_menu_kb())
     elif data == "menu_list":
         projects = await get_user_projects(user_id)
         if not projects:
-            await query.edit_message_text("📂 You have no active projects\\.", parse_mode="MarkdownV2", reply_markup=main_menu_kb())
+            await query.edit_message_text("📂 You have no active projects\\. Use `/newproject` to create one\\.", parse_mode="MarkdownV2", reply_markup=main_menu_kb())
         else:
             await query.edit_message_text("📁 *Your Web Projects:*", parse_mode="MarkdownV2", reply_markup=projects_list_kb(projects))
     elif data == "menu_templates":
@@ -291,14 +293,44 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "5\\. `admin` \\- Admin Dashboard 📊"
         )
         await query.edit_message_text(template_text, parse_mode="MarkdownV2", reply_markup=templates_kb())
+    elif data == "menu_storage":
+        used_bytes = await get_user_storage_size(user_id)
+        msg = f"📊 *Storage Breakdown*\n\nUsed: `{human_size(used_bytes)}` / `{human_size(MAX_TOTAL_STORAGE)}`"
+        await query.edit_message_text(msg, parse_mode="MarkdownV2", reply_markup=main_menu_kb())
+    elif data == "menu_help":
+        msg = (
+            "📖 *Web\\-with\\-chikuu Command Guide*\n\n"
+            "• `/newproject <name> <type>` \\- Create site\n"
+            "• `/myprojects` \\- List projects\n"
+            "• `/openproject <id>` \\- Manage site\n"
+            "• `/preview <id>` \\- Preview link\n"
+            "• `/deploy <id>` \\- Live link\n"
+            "• `/exportzip <id>` \\- Export ZIP"
+        )
+        await query.edit_message_text(msg, parse_mode="MarkdownV2", reply_markup=main_menu_kb())
     elif data.startswith("open_"):
         p_id = data.replace("open_", "")
         project = await get_project(p_id)
-        await query.edit_message_text(f"🌐 *Project:* {esc(project['name'])}\n🆔 *ID:* `{esc(p_id)}`", parse_mode="MarkdownV2", reply_markup=project_menu_kb(p_id))
+        if project:
+            await query.edit_message_text(f"🌐 *Project:* {esc(project['name'])}\n🆔 *ID:* `{esc(p_id)}`\n🎨 *Type:* {esc(project['type'])}", parse_mode="MarkdownV2", reply_markup=project_menu_kb(p_id))
+        else:
+            await query.edit_message_text("❌ Project not found\\.", parse_mode="MarkdownV2", reply_markup=main_menu_kb())
     elif data.startswith("file_"):
         p_id = data.replace("file_", "")
         project = await get_project(p_id)
-        await query.edit_message_text("📄 *Project Files:*", parse_mode="MarkdownV2", reply_markup=files_list_kb(p_id, project.get("files", {})))
+        if project:
+            await query.edit_message_text("📄 *Project Files:*", parse_mode="MarkdownV2", reply_markup=files_list_kb(p_id, project.get("files", {})))
+    elif data.startswith("vf_"):
+        parts = data.split("_", 2)
+        if len(parts) == 3:
+            p_id, filename = parts[1], parts[2]
+            project = await get_project(p_id)
+            if project and filename in project.get("files", {}):
+                content = project["files"][filename]
+                if len(content) > 3000:
+                    await query.message.reply_text(f"📄 *File:* `{esc(filename)}` is too large to show in inline chat\\. Use `/viewfile {p_id} {filename}` to download\\.", parse_mode="MarkdownV2")
+                else:
+                    await query.message.reply_text(f"📄 *File:* `{esc(filename)}`\n```html\n{content}\n```", parse_mode="MarkdownV2")
     elif data.startswith("prev_"):
         p_id = data.replace("prev_", "")
         await query.message.reply_text(f"🔗 *Preview URL:* {WEBHOOK_URL}/preview/{p_id}", parse_mode="MarkdownV2")
