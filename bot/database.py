@@ -1,9 +1,21 @@
+import sys
 from motor.motor_asyncio import AsyncIOMotorClient
 from bot.config import MONGO_URI, MAX_PROJECTS_PER_USER
 
-client = AsyncIOMotorClient(MONGO_URI)
-db = client["web_builder_chikuu"]
-projects_collection = db["projects"]
+# Sanitize and validate MONGO_URI string
+clean_uri = (MONGO_URI or "").strip().strip('"').strip("'")
+
+if not clean_uri:
+    print("❌ ERROR: MONGO_URI is empty or not set in Environment Variables!", file=sys.stderr)
+    # Default fallback to prevent immediate crash if variable is missing
+    clean_uri = "mongodb://localhost:27017"
+
+try:
+    client = AsyncIOMotorClient(clean_uri)
+    db = client["web_builder_chikuu"]
+    projects_collection = db["projects"]
+except Exception as e:
+    print(f"❌ MongoDB Connection Initialization Error: {e}", file=sys.stderr)
 
 async def create_project(user_id: int, project_id: str, name: str, p_type: str, initial_files: dict) -> bool:
     count = await projects_collection.count_documents({"user_id": user_id})
