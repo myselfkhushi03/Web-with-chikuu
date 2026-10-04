@@ -33,6 +33,16 @@ async def lifespan(app: FastAPI):
 app = fastapi_app
 app.router.lifespan_context = lifespan
 
+# Render Health Check Routes (Fixes 405 Method Not Allowed)
+@app.get("/")
+@app.head("/")
+async def root():
+    return {"status": "ok", "message": "Web-with-chikuu Bot Service is Running"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
 @app.post(f"/webhook/{WEBHOOK_SECRET}")
 async def telegram_webhook(request: Request):
     if not ptb_app:
