@@ -3,5 +3,6 @@ uvicorn
 python-telegram-bot
 motor
 pymongo
+dnspython
 gunicorn
 python-dotenv
