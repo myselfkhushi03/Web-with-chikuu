@@ -1,7 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
-from telegram import Update
-from bot.config import WEBHOOK_SECRET
 from bot.database import get_project
 
 fastapi_app = FastAPI(title="Web Service Engine")
@@ -10,9 +8,10 @@ fastapi_app = FastAPI(title="Web Service Engine")
 async def home():
     return "<h1>Web Builder Engine Online</h1>"
 
+# Ye wala route add karein UptimeRobot ping ke liye
 @fastapi_app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "active", "message": "Bot server is running fast"}
 
 @fastapi_app.get("/preview/{project_id}", response_class=HTMLResponse)
 @fastapi_app.get("/s/{project_id}", response_class=HTMLResponse)
