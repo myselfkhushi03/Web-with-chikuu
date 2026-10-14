@@ -1,11 +1,25 @@
+# Render Blueprint — optional. "New + > Blueprint" picks this file up automatically.
 services:
   - type: web
     name: webify-bot
-    env: python
-    region: oregon
-    plan: free
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    runtime: python
+    plan: starter            # a persistent disk requires a paid plan; "free" also works but loses files on redeploy
+    buildCommand: pip install -r requirements.txt
     startCommand: python main.py
+    healthCheckPath: /health
+    autoDeploy: true
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: BOT_TOKEN
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: webify-data
+      mountPath: /var/data
+      sizeGB: 5
