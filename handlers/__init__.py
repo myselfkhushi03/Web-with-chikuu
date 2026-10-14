@@ -1,1 +1,1 @@
-# Handlers Package Initialization
+"""Telegram handlers (user + admin)."""
