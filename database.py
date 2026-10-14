@@ -17,6 +17,7 @@ from typing import Any, AsyncIterator, Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
+from pymongo.errors import OperationFailure
 
 import config
 
@@ -53,20 +54,37 @@ class Database:
             self.db = None
 
     async def _ensure_indexes(self) -> None:
+        """
+        Create indexes. Unique indexes are *partial* (only documents whose key has the
+        right BSON type are indexed), so leftover documents from an older schema or
+        another app sharing this database (missing/null keys) can't break startup.
+        """
         assert self.db is not None
-        await self.db.users.create_index("telegram_id", unique=True)
-        await self.db.users.create_index("username")
-        await self.db.sites.create_index("site_id", unique=True)
-        await self.db.sites.create_index("slug", unique=True)
-        await self.db.sites.create_index([("owner_id", ASCENDING), ("created_at", DESCENDING)])
-        # Unique custom domains, but many sites may have an empty one.
-        await self.db.sites.create_index(
-            "custom_domain",
-            unique=True,
-            partialFilterExpression={"custom_domain": {"$gt": ""}},
-        )
-        await self.db.qr_codes.create_index("qr_id", unique=True)
-        await self.db.qr_codes.create_index("site_id")
+        str_key = lambda f: {f: {"$type": "string"}}
+        num_key = {"telegram_id": {"$type": ["int", "long"]}}
+        specs = [
+            (self.db.users, "telegram_id", dict(unique=True, partialFilterExpression=num_key)),
+            (self.db.users, "username", {}),
+            (self.db.sites, "site_id", dict(unique=True, partialFilterExpression=str_key("site_id"))),
+            (self.db.sites, "slug", dict(unique=True, partialFilterExpression=str_key("slug"))),
+            (self.db.sites, [("owner_id", ASCENDING), ("created_at", DESCENDING)], {}),
+            # Unique custom domains, but many sites may have an empty one.
+            (self.db.sites, "custom_domain",
+             dict(unique=True, partialFilterExpression={"custom_domain": {"$gt": ""}})),
+            (self.db.qr_codes, "qr_id", dict(unique=True, partialFilterExpression=str_key("qr_id"))),
+            (self.db.qr_codes, "site_id", {}),
+        ]
+        for collection, keys, options in specs:
+            try:
+                await collection.create_index(keys, **options)
+            except OperationFailure as exc:
+                # Includes DuplicateKeyError and IndexOptionsConflict. Don't crash the
+                # whole bot over an index; tell the operator exactly what to fix.
+                log.error(
+                    "Could not create index %s on %s: %s. Fix or drop the conflicting "
+                    "data/index, or set DB_NAME to a fresh database.",
+                    keys, collection.name, exc,
+                )
 
     @property
     def _users(self):
