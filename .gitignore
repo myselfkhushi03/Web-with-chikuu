@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
+env/
+hosted_sites/*
+qr_storage/*
+temp_uploads/*
+.DS_Store
