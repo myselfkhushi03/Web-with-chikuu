@@ -74,8 +74,36 @@ class Database:
             (self.db.qr_codes, "qr_id", dict(unique=True, partialFilterExpression=str_key("qr_id"))),
             (self.db.qr_codes, "site_id", {}),
         ]
+        await self._drop_foreign_unique_indexes(specs)
         for collection, keys, options in specs:
             await self._create_index_safe(collection, keys, options)
+
+    async def _drop_foreign_unique_indexes(self, specs) -> None:
+        """
+        Remove leftover *unique* indexes (e.g. ``uid_1`` from an older bot that used the
+        same database) on our collections. They would reject our documents, which have no
+        such field (every missing value counts as null -> E11000 on the second insert).
+        Only indexes are dropped; documents are never touched.
+        """
+        wanted: dict[str, set[str]] = {}
+        for collection, keys, _ in specs:
+            wanted.setdefault(collection.name, set()).add(self._index_name(keys))
+        for collection in (self.db.users, self.db.sites, self.db.qr_codes):  # type: ignore[union-attr]
+            try:
+                info = await collection.index_information()
+            except OperationFailure as exc:
+                log.warning("Could not inspect indexes of %s: %s", collection.name, exc)
+                continue
+            for name, spec in info.items():
+                if name == "_id_" or name in wanted.get(collection.name, set()):
+                    continue
+                if spec.get("unique"):
+                    log.warning("Dropping foreign unique index %s on %s (%s)",
+                                name, collection.name, spec.get("key"))
+                    try:
+                        await collection.drop_index(name)
+                    except OperationFailure as exc:
+                        log.error("Could not drop index %s on %s: %s", name, collection.name, exc)
 
     @staticmethod
     def _index_name(keys) -> str:
