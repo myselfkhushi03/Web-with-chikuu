@@ -75,16 +75,40 @@ class Database:
             (self.db.qr_codes, "site_id", {}),
         ]
         for collection, keys, options in specs:
-            try:
-                await collection.create_index(keys, **options)
-            except OperationFailure as exc:
-                # Includes DuplicateKeyError and IndexOptionsConflict. Don't crash the
-                # whole bot over an index; tell the operator exactly what to fix.
+            await self._create_index_safe(collection, keys, options)
+
+    @staticmethod
+    def _index_name(keys) -> str:
+        """MongoDB's auto-generated index name, e.g. 'slug_1' or 'owner_id_1_created_at_-1'."""
+        pairs = [(keys, 1)] if isinstance(keys, str) else list(keys)
+        return "_".join(f"{k}_{d}" for k, d in pairs)
+
+    async def _create_index_safe(self, collection, keys, options: dict) -> None:
+        """
+        Create an index; if an older version of *our own* index with the same name but
+        different options exists (code 85/86), drop it and recreate. Other failures are
+        logged instead of crashing startup.
+        """
+        try:
+            await collection.create_index(keys, **options)
+            return
+        except OperationFailure as exc:
+            if exc.code not in (85, 86):          # IndexOptionsConflict / IndexKeySpecsConflict
                 log.error(
                     "Could not create index %s on %s: %s. Fix or drop the conflicting "
-                    "data/index, or set DB_NAME to a fresh database.",
-                    keys, collection.name, exc,
+                    "data, or set DB_NAME to a fresh database.", keys, collection.name, exc,
                 )
+                return
+        name = self._index_name(keys)
+        log.warning("Replacing outdated index %s on %s", name, collection.name)
+        try:
+            await collection.drop_index(name)
+            await collection.create_index(keys, **options)
+        except OperationFailure as exc:
+            log.error(
+                "Could not rebuild index %s on %s: %s. Fix or drop the conflicting "
+                "data, or set DB_NAME to a fresh database.", keys, collection.name, exc,
+            )
 
     @property
     def _users(self):
