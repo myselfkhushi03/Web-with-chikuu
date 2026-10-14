@@ -26,7 +26,18 @@ class AccessMiddleware(BaseMiddleware):
         if tg_user is None or tg_user.is_bot:
             return await handler(event, data)
 
-        user_doc = await db.upsert_user(tg_user.id, tg_user.username or "")
+        try:
+            user_doc = await db.upsert_user(tg_user.id, tg_user.username or "")
+        except Exception:
+            log.exception("database error while registering user %s", tg_user.id)
+            try:
+                if isinstance(event, CallbackQuery):
+                    await event.answer("⚠️ Temporary database error. Try again shortly.", show_alert=True)
+                elif isinstance(event, Message):
+                    await event.answer("⚠️ <b>Temporary database error.</b> Please try again in a moment.")
+            except Exception:
+                pass
+            return None
         data["db_user"] = user_doc
 
         if user_doc.get("is_banned") and tg_user.id not in config.ADMIN_IDS:
