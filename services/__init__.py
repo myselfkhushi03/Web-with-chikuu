@@ -1,1 +1,1 @@
-# Services Package Initialization
+"""Service layer: deployment engine and QR generator."""
